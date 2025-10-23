@@ -6,8 +6,6 @@ use Laminas\Soap\Server as SoapServer;
 use App\Services\ClientSoapService;
 use Laminas\Soap\AutoDiscover as WsdlGenerator;
 
-use function PHPUnit\Framework\isNull;
-
 class ClientSoapController extends Controller
 {
     public function wsdl()
@@ -15,7 +13,7 @@ class ClientSoapController extends Controller
         if (!request()->has('wsdl')) {
             abort(404);
         }
-        
+
         // Generate and return the WSDL
         $wsdl = new WsdlGenerator();
         $wsdl->setUri(url('/api/soap/clients'))

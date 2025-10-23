@@ -2,12 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use Laminas\Soap\Server as SoapServer;
 use App\Services\WalletSoapService;
 use Laminas\Soap\AutoDiscover as WsdlGenerator;
-
-use function PHPUnit\Framework\isNull;
 
 class WalletSoapController extends Controller
 {
