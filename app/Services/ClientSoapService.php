@@ -18,16 +18,8 @@ class ClientSoapService
     {
 
         try {
-
-            logger([
-                'documento' => $document,
-                'nombres' => $full_name,
-                'email' => $email,
-                'celular' => $phone,
-            ]);
-
             // Crear un nuevo cliente en la base de datos
-            $client = Client::create([
+            Client::create([
                 'document' => $document,
                 'full_name' => $full_name,
                 'email' => $email,
@@ -44,7 +36,6 @@ class ClientSoapService
 
             return $result;
         } catch (\Exception $e) {
-            logger('Inserción error', ['error' => $e->getMessage()]);
             $result = [
                 'success' => false,
                 'message_error' => $e->getMessage(),

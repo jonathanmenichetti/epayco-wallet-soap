@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\PaymentSession;
 use Faker\Provider\ar_EG\Payment;
 use Ramsey\Uuid\Uuid;
+use Illuminate\Support\Facades\DB; // Importar la clase DB para transacciones
 
 class WalletSoapService
 {
@@ -19,11 +20,8 @@ class WalletSoapService
     public function topUpWallet($document, $phone, $amount)
     {
         try {
-            logger([
-                'documento' => $document,
-                'celular' => $phone,
-                'monto' => $amount,
-            ]);
+            // Start transaction
+            DB::beginTransaction();
 
             $client = Client::where('document', $document)
                 ->where('phone', $phone)
@@ -33,13 +31,14 @@ class WalletSoapService
                 throw new \Exception('Client not found');
             }
 
-            logger('Client found', ['client_id' => $client->id, 'balance_before' => $client->balance]);
 
-            // Actualizar el balance del cliente
+            // Update client balance
             $client->balance += $amount;
             $client->save();
 
-            logger('Client balance updated', ['client_id' => $client->id, 'balance_after' => $client->balance]);
+
+            // Commit transaction
+            DB::commit();
 
             $result = [
                 'success' => true,
@@ -51,7 +50,8 @@ class WalletSoapService
 
             return $result;
         } catch (\Exception $e) {
-            logger('Inserción error', ['error' => $e->getMessage()]);
+            // Rollback transaction
+            DB::rollBack();
             $result = [
                 'success' => false,
                 'message_error' => $e->getMessage(),
@@ -69,11 +69,6 @@ class WalletSoapService
     public function checkBalance($document, $phone)
     {
         try {
-            logger([
-                'documento' => $document,
-                'celular' => $phone,
-            ]);
-
             $client = Client::where('document', $document)
                 ->where('phone', $phone)
                 ->first();
@@ -81,8 +76,6 @@ class WalletSoapService
             if (!$client) {
                 throw new \Exception('Client not found');
             }
-
-            logger('Client found', ['client_id' => $client->id, 'balance' => $client->balance]);
 
             $result = [
                 'success' => true,
@@ -94,7 +87,6 @@ class WalletSoapService
 
             return $result;
         } catch (\Exception $e) {
-            logger('Consulta error', ['error' => $e->getMessage()]);
             $result = [
                 'success' => false,
                 'message_error' => $e->getMessage(),
@@ -113,11 +105,8 @@ class WalletSoapService
     public function makePayment($document, $phone, $amount)
     {
         try {
-            logger([
-                'documento' => $document,
-                'celular' => $phone,
-                'monto' => $amount,
-            ]);
+            // Start transaction
+            DB::beginTransaction();
 
             $client = Client::where('document', $document)
                 ->where('phone', $phone)
@@ -129,7 +118,6 @@ class WalletSoapService
 
             // Validate sufficient balance
             $balance = $client->balance;
-            logger('Balance data', ['balanceData' => $balance]);
 
             if ($balance < $amount) {
                 throw new \Exception('Insufficient balance');
@@ -137,11 +125,9 @@ class WalletSoapService
 
             // Generate session_id
             $sessionId = $this->generateSessionId();
-            logger('Generated session_id', ['session_id' => $sessionId]);
 
             // Generate token
             $token = $this->generateToken();
-            logger('Generated token', ['token' => $token]);
 
             // Create payment session
             $payment = PaymentSession::create([
@@ -152,22 +138,25 @@ class WalletSoapService
                 'status' => 'pending',
             ]);
 
-            // "Enviar" token al email (logger por ahora)
-            // Retornar session_id + mensaje
+            // Commit transaction
+            DB::commit();
 
             $result = [
                 'success' => true,
                 'cod_error' => '00',
                 'message_error' => '',
                 'data' => [
-                    'message' => 'Token enviado al correo',
-                    'payment_session' => $payment,
-                    // NO retornar el token por seguridad
+                    'message' => 'Payment session created successfully',
+                    'client_id' => $payment->client_id,
+                    'amount' => $payment->amount,
+                    'session_id' => $payment->session_id,
+                    'token' => $payment->token,
                 ]
             ];
             return $result;
         } catch (\Exception $e) {
-            logger('Inserción error', ['error' => $e->getMessage()]);
+            // Rollback transaction
+            DB::rollBack();
             $result = [
                 'success' => false,
                 'message_error' => $e->getMessage(),
@@ -176,8 +165,76 @@ class WalletSoapService
         }
     }
 
-    // confirmPayment
+    /**
+     * Confirmar un pago desde la billetera
+     * @param string $sessionId
+     * @param string $token  
+     * @return array
+     */
+    public function confirmPayment($session_id, $token)
+    {
+        try {
+            logger([
+                'sessionId' => $session_id,
+                'token' => $token,
+            ]);
 
+            // Start transaction
+            DB::beginTransaction();
+
+            $payment = PaymentSession::where('session_id', $session_id)
+                ->where('token', $token)
+                ->where('status', 'pending')
+                ->first();
+
+            if (!$payment) {
+                throw new \Exception('There is no pending payment with the provided session ID and token');
+            }
+
+            $client = Client::where('id', $payment->client_id)
+                ->first();
+
+            if (!$client) {
+                throw new \Exception('Client not found');
+            }
+
+            // Validate sufficient balance
+            $balance = $client->balance;
+
+            if ($balance < $payment->amount) {
+                throw new \Exception('Insufficient balance');
+            }
+
+            // Update client balance
+            $client->balance -= $payment->amount;
+            $client->save();
+
+            // Update payment session status to confirmed
+            $payment->status = 'confirmed';
+            $payment->save();
+
+            // Commit transaction
+            DB::commit();
+
+            $result = [
+                'success' => true,
+                'message_error' => '',
+                'data' => [
+                    'message' => 'Payment confirmed successfully',
+                ]
+            ];
+
+            return $result;
+        } catch (\Exception $e) {
+            // Rollback transaction
+            DB::rollBack();
+            $result = [
+                'success' => false,
+                'message_error' => $e->getMessage(),
+            ];
+            return $result;
+        }
+    }
 
     public function generateSessionId(): string
     {
